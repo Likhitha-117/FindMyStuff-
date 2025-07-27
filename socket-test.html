@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>FindMyStuff Chat Test</title>
+</head>
+<body>
+  <h2>Socket.IO Chat Test</h2>
+
+  <input type="text" id="senderId" placeholder="Your User ID" />
+  <input type="text" id="recipientId" placeholder="Recipient User ID" />
+  <input type="text" id="message" placeholder="Type a message..." />
+  <button onclick="sendMessage()">Send</button>
+
+  <div id="chatBox" style="margin-top:20px; border:1px solid #ccc; padding:10px;"></div>
+
+  <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+  <script>
+    const socket = io('http://localhost:5000'); // change if using a different port
+
+    const chatBox = document.getElementById('chatBox');
+
+    // Add yourself to online users
+    document.getElementById('senderId').addEventListener('blur', () => {
+      const userId = document.getElementById('senderId').value;
+      socket.emit('addUser', userId);
+    });
+
+    // Send message
+    function sendMessage() {
+      const senderId = document.getElementById('senderId').value;
+      const recipientId = document.getElementById('recipientId').value;
+      const text = document.getElementById('message').value;
+
+      socket.emit('sendMessage', { senderId, recipientId, text });
+    }
+
+    // Receive message
+    socket.on('getMessage', (data) => {
+      const { senderName, text, timestamp } = data;
+
+      const time = new Date(timestamp).toLocaleTimeString();
+      const msgElement = document.createElement('div');
+      msgElement.innerHTML = `<strong>${senderName || 'Unknown'}:</strong> ${text} <em>${time}</em>`;
+      chatBox.appendChild(msgElement);
+    });
+  </script>
+</body>
+</html>

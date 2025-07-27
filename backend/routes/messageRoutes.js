@@ -1,12 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const messageController = require('../controllers/messageController');
-const authMiddleware = require('../middleware/authMiddleware'); // assuming you have JWT auth middleware
+const authMiddleware = require('../middleware/authMiddleware');
 
-// Send a new message (POST)
+// 📩 Send a message
 router.post('/send', authMiddleware, messageController.sendMessage);
 
-// Get all messages between logged-in user and another user (GET)
+router.get('/chatlist', authMiddleware, messageController.getChatList);
 router.get('/:userId', authMiddleware, messageController.getMessages);
+
 
 module.exports = router;
