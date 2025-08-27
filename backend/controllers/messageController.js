@@ -1,102 +1,88 @@
-const Message = require('../models/Message');
-const User = require('../models/User');
+const Chat = require("../models/Chat");
+const Message = require("../models/Message");
+const LostItem = require("../models/LostItem");
+const FoundItem = require("../models/FoundItem");
 
-// 📩 POST: Send a message
+// ✅ Start chat
+exports.startChat = async (req, res) => {
+  try {
+    const { itemId } = req.params;
+    const userId = req.user.id; // logged-in user
+
+    // Try to find item in both collections
+    let item = await LostItem.findById(itemId);
+    let itemModel = "LostItem";
+    if (!item) {
+      item = await FoundItem.findById(itemId);
+      itemModel = "FoundItem";
+    }
+    if (!item) return res.status(404).json({ message: "Item not found" });
+
+    const ownerId = item.user.toString();
+
+    if (ownerId === userId) {
+      return res.status(400).json({ message: "You cannot chat with yourself" });
+    }
+
+    // Check if chat already exists
+    let chat = await Chat.findOne({
+      participants: { $all: [userId, ownerId] },
+      item: itemId,
+    });
+
+    if (!chat) {
+      chat = new Chat({
+        participants: [userId, ownerId],
+        item: itemId,
+        itemModel,
+      });
+      await chat.save();
+    }
+
+    res.json({ chatId: chat._id, message: "Chat started", chat });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error while starting chat" });
+  }
+};
+
+// ✅ Send a message
 exports.sendMessage = async (req, res) => {
   try {
-    const { recipientId, text } = req.body;
+    const { chatId } = req.params;
+    const { content } = req.body;
+    const sender = req.user.id;
+
+    const chat = await Chat.findById(chatId);
+    if (!chat) return res.status(404).json({ message: "Chat not found" });
+
+    const receiver = chat.participants.find(
+      (id) => id.toString() !== sender.toString()
+    );
 
     const message = new Message({
-      sender: req.userId,
-      recipient: recipientId,
-      text
+      chatId,
+      sender,
+      receiver,
+      content,
     });
 
-    const saved = await message.save();
-
-    res.status(201).json({ message: 'Message sent', data: saved });
+    await message.save();
+    res.json(message);
   } catch (err) {
-    console.error("❌ Error sending message:", err.message);
-    res.status(500).json({ error: 'Server error while sending message' });
+    console.error(err);
+    res.status(500).json({ message: "Server error while sending message" });
   }
 };
 
-// 💬 GET: Get chat messages between two users
+// ✅ Fetch messages
 exports.getMessages = async (req, res) => {
   try {
-    const { userId } = req.params;
-
-    const messages = await Message.find({
-      $or: [
-        { sender: req.userId, recipient: userId },
-        { sender: userId, recipient: req.userId }
-      ]
-    })
-      .sort({ createdAt: 1 })
-      .populate('sender', 'name')
-      .populate('recipient', 'name');
-
-    const formattedMessages = messages.map((msg) => ({
-      _id: msg._id,
-      text: msg.text,
-      senderName: msg.sender.name,
-      recipientName: msg.recipient.name,
-      timestamp: msg.createdAt?.toLocaleTimeString('en-IN', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: true,
-      }) || 'Time Unknown',
-    }));
-
-    res.status(200).json(formattedMessages);
+    const { chatId } = req.params;
+    const messages = await Message.find({ chatId }).populate("sender", "name");
+    res.json(messages);
   } catch (err) {
-    console.error("❌ Error fetching messages:", err.message);
-    res.status(500).json({ error: 'Server error while retrieving messages' });
-  }
-};
-
-// 🗂️ GET: List of all users the current user has chatted with
-exports.getChatList = async (req, res) => {
-  try {
-    const userId = req.userId;
-
-    const messages = await Message.find({
-      $or: [{ sender: userId }, { recipient: userId }]
-    })
-      .sort({ createdAt: -1 })
-      .populate('sender', 'name')
-      .populate('recipient', 'name');
-
-    const chatMap = new Map();
-
-    messages.forEach((msg) => {
-      const otherUser =
-        msg.sender._id.toString() === userId
-          ? msg.recipient
-          : msg.sender;
-
-      const otherUserId = otherUser._id.toString();
-
-      if (!chatMap.has(otherUserId)) {
-        chatMap.set(otherUserId, {
-          userId: otherUserId,
-          name: otherUser.name,
-          lastMessage: msg.text,
-          timestamp: msg.createdAt?.toLocaleTimeString('en-IN', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true,
-          }) || 'Time Unknown',
-        });
-      }
-    });
-
-    const chatList = Array.from(chatMap.values());
-
-    res.status(200).json(chatList);
-  } catch (err) {
-    console.error('❌ Error fetching chat list:', err.message);
-    res.status(500).json({ error: 'Server error while fetching chat list' });
+    console.error(err);
+    res.status(500).json({ message: "Server error while fetching messages" });
   }
 };

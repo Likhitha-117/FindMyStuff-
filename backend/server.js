@@ -4,37 +4,35 @@ const dotenv = require('dotenv');
 const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
+const path = require('path');
 const connectDB = require('./config/db');
-const messageRoutes = require('./routes/messageRoutes');
-const Message = require('./models/Message'); // ✅ Mongoose model
+const Message = require('./models/Message');
+const LostItem = require('./models/LostItem');     // Add your item models
+const FoundItem = require('./models/FoundItem');
+const jwt = require('jsonwebtoken');
 
 // 🔁 Load environment variables and connect to DB
 dotenv.config();
 connectDB();
 
-// 🔁 Initialize Express and create HTTP server
+// 🔁 Initialize Express
 const app = express();
 const server = http.createServer(app);
 
-// 🔁 Setup Socket.IO with CORS
-const io = new Server(server, {
-  cors: {
-    origin: "*", // 🔐 Replace with frontend domain in production
-    methods: ["GET", "POST"]
-  }
-});
-
 // 🔁 Middleware
-app.use(cors());
+app.use(cors({
+  origin: "http://localhost:3000",
+  credentials: true
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use('/uploads', express.static('uploads'));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // 🔁 API Routes
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/lost-items', require('./routes/lostItemRoutes'));
 app.use('/api/found-items', require('./routes/foundItemRoutes'));
-app.use('/api/messages', messageRoutes);
+app.use('/api/messages', require('./routes/messageRoutes'));
 
 // 🔁 Test route
 app.get('/', (req, res) => {
@@ -46,52 +44,80 @@ app.get('/', (req, res) => {
 // ============================
 const onlineUsers = new Map();
 
+const io = new Server(server, {
+  cors: {
+    origin: "http://localhost:3000",
+    methods: ["GET", "POST"],
+    credentials: true
+  }
+});
+
+// ✅ JWT Middleware for Socket.IO
+io.use((socket, next) => {
+  try {
+    const token = socket.handshake.auth?.token;
+    if (!token) return next(new Error("Authentication error"));
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    socket.userId = decoded.id;
+    next();
+  } catch (err) {
+    next(new Error("Authentication error"));
+  }
+});
+
 io.on('connection', (socket) => {
-  console.log(`⚡ User connected: ${socket.id}`);
+  console.log(`⚡ User connected: ${socket.userId} (${socket.id})`);
+  onlineUsers.set(socket.userId, socket.id);
 
-  // ✅ Register user as online
-  socket.on('addUser', (userId) => {
-    onlineUsers.set(userId, socket.id);
-    console.log(`✅ User ${userId} is now online`);
-  });
-
-  // ✅ Handle and store messages
-  socket.on('sendMessage', async ({ senderId, recipientId, text }) => {
+  // ✅ Handle sending messages
+  socket.on('sendMessage', async ({ itemId, text, type }) => {
     try {
-      // Save message to DB
+      // Determine item type and fetch owner
+      let item;
+      if (type === 'lost') {
+        item = await LostItem.findById(itemId);
+      } else if (type === 'found') {
+        item = await FoundItem.findById(itemId);
+      }
+
+      if (!item) {
+        return socket.emit('messageSent', { success: false, error: 'Item not found' });
+      }
+
+      const recipientId = item.user.toString(); // Owner of the item
+
       const newMessage = await Message.create({
-        sender: senderId,
+        sender: socket.userId,
         recipient: recipientId,
-        text: text
+        text
       });
 
-      // ✅ Populate sender's name from User collection
       const populatedMessage = await newMessage.populate('sender', 'name');
 
-      // ✅ Send to recipient if online
+      // Send to recipient if online
       const recipientSocketId = onlineUsers.get(recipientId);
       if (recipientSocketId) {
         io.to(recipientSocketId).emit('getMessage', {
-          senderId,
+          senderId: socket.userId,
           senderName: populatedMessage.sender.name,
           text,
           timestamp: populatedMessage.createdAt
         });
       }
+
+      // Acknowledge sender
+      socket.emit('messageSent', { success: true, messageId: newMessage._id });
+
     } catch (err) {
       console.error("❌ Error saving message:", err.message);
+      socket.emit('messageSent', { success: false });
     }
   });
 
-  // ✅ Handle user disconnect
+  // ✅ Handle disconnect
   socket.on('disconnect', () => {
-    for (let [userId, sockId] of onlineUsers.entries()) {
-      if (sockId === socket.id) {
-        onlineUsers.delete(userId);
-        console.log(`❌ User ${userId} disconnected`);
-        break;
-      }
-    }
+    onlineUsers.delete(socket.userId);
+    console.log(`❌ User disconnected: ${socket.userId}`);
   });
 });
 

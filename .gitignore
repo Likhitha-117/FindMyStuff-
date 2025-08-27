@@ -3,7 +3,8 @@ node_modules/
 
 # Environment variables
 .env
-
+build/
+frontend/.env
 # Uploaded files (optional if you don’t want to track them)
 uploads/
 

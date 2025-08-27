@@ -1,13 +1,15 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const messageController = require('../controllers/messageController');
-const authMiddleware = require('../middleware/authMiddleware');
+const { startChat, sendMessage, getMessages } = require("../controllers/messageController");
+const auth = require("../middleware/authMiddleware");
 
-// 📩 Send a message
-router.post('/send', authMiddleware, messageController.sendMessage);
+// Start chat with item owner
+router.post("/chat/start/:itemId", auth, startChat);
 
-router.get('/chatlist', authMiddleware, messageController.getChatList);
-router.get('/:userId', authMiddleware, messageController.getMessages);
+// Send a message in a chat
+router.post("/chat/:chatId/message", auth, sendMessage);
 
+// Get all messages in a chat
+router.get("/chat/:chatId/messages", auth, getMessages);
 
 module.exports = router;

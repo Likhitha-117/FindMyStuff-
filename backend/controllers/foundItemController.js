@@ -53,3 +53,84 @@ exports.getAllFoundItems = async (req, res) => {
     res.status(500).json({ message: "Error retrieving found items" });
   }
 };
+// ✅ GET: Single found item by ID
+exports.getFoundItemById = async (req, res) => {
+  try {
+    const item = await FoundItem.findById(req.params.id).populate("user", "name email");
+
+    if (!item) {
+      return res.status(404).json({ message: 'Found item not found' });
+    }
+
+    res.status(200).json(item);
+  } catch (err) {
+    console.error("❌ Error fetching found item by ID:", err.message);
+    res.status(500).json({ message: 'Server error retrieving item' });
+  }
+};
+
+
+exports.updateFoundItem = async (req, res) => {
+  try {
+    const foundItem = await FoundItem.findById(req.params.id);
+
+    if (!foundItem) {
+      return res.status(404).json({ message: "Found item not found" });
+    }
+
+    // Update fields
+    foundItem.itemName = req.body.itemName || foundItem.itemName;
+    foundItem.description = req.body.description || foundItem.description;
+    foundItem.dateFound = req.body.dateFound || foundItem.dateFound;
+    foundItem.location = req.body.location || foundItem.location;
+
+    if (req.file) {
+      foundItem.imagePath = req.file.path;
+    }
+
+    await foundItem.save();
+    res.json({ message: "Found item updated successfully", foundItem });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error while updating found item" });
+  }
+};
+
+exports.deleteFoundItem = async (req, res) => {
+  try {
+    const foundItem = await FoundItem.findById(req.params.id);
+
+    if (!foundItem) {
+      return res.status(404).json({ message: "Found item not found" });
+    }
+
+    await foundItem.deleteOne();
+    res.json({ message: "Found item deleted successfully" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error while deleting found item" });
+  }
+};
+
+
+exports.deleteFoundItem = async (req, res) => {
+  try {
+    const foundItem = await FoundItem.findById(req.params.id);
+
+    if (!foundItem) {
+      return res.status(404).json({ message: "Found item not found" });
+    }
+
+    // ✅ Ensure only the creator can delete
+    if (foundItem.user.toString() !== req.userId) { // 👈 use req.userId (from middleware)
+      return res.status(403).json({ message: "Not authorized to delete this item" });
+    }
+
+    await foundItem.deleteOne();
+
+    res.json({ message: "Found item deleted successfully" });
+  } catch (err) {
+    console.error("❌ Error deleting found item:", err);
+    res.status(500).json({ message: "Server error while deleting found item" });
+  }
+};
