@@ -7,7 +7,7 @@ const { Server } = require('socket.io');
 const path = require('path');
 const connectDB = require('./config/db');
 const Message = require('./models/Message');
-const LostItem = require('./models/LostItem');     // Add your item models
+const LostItem = require('./models/LostItem');
 const FoundItem = require('./models/FoundItem');
 const jwt = require('jsonwebtoken');
 
@@ -69,50 +69,50 @@ io.on('connection', (socket) => {
   console.log(`⚡ User connected: ${socket.userId} (${socket.id})`);
   onlineUsers.set(socket.userId, socket.id);
 
-  // ✅ Handle sending messages
-  socket.on('sendMessage', async ({ itemId, text, type }) => {
-    try {
-      // Determine item type and fetch owner
-      let item;
-      if (type === 'lost') {
-        item = await LostItem.findById(itemId);
-      } else if (type === 'found') {
-        item = await FoundItem.findById(itemId);
-      }
+  // ✅ Handle sending messages (OLX-style)
+socket.on("sendMessage", async ({ itemId, type, content }) => {
+  try {
+    // 1️⃣ Find item
+    let item;
+    if (type === "lost") item = await LostItem.findById(itemId);
+    else item = await FoundItem.findById(itemId);
 
-      if (!item) {
-        return socket.emit('messageSent', { success: false, error: 'Item not found' });
-      }
+    if (!item) return socket.emit("messageSent", { success: false, error: "Item not found" });
 
-      const recipientId = item.user.toString(); // Owner of the item
+    // 2️⃣ Receiver = item owner
+    const receiverId = item.user.toString();
 
-      const newMessage = await Message.create({
-        sender: socket.userId,
-        recipient: recipientId,
-        text
+    // 3️⃣ Save message
+    const newMessage = await Message.create({
+      itemId,
+      itemType: type === "lost" ? "LostItem" : "FoundItem",
+      sender: socket.userId,
+      receiver: receiverId,
+      content
+    });
+
+    const populatedMessage = await newMessage.populate("sender", "name");
+
+    // 4️⃣ Send to receiver if online
+    const receiverSocketId = onlineUsers.get(receiverId);
+    if (receiverSocketId) {
+      io.to(receiverSocketId).emit("getMessage", {
+        senderId: socket.userId,
+        senderName: populatedMessage.sender.name,
+        content,
+        itemId,
+        timestamp: populatedMessage.createdAt
       });
-
-      const populatedMessage = await newMessage.populate('sender', 'name');
-
-      // Send to recipient if online
-      const recipientSocketId = onlineUsers.get(recipientId);
-      if (recipientSocketId) {
-        io.to(recipientSocketId).emit('getMessage', {
-          senderId: socket.userId,
-          senderName: populatedMessage.sender.name,
-          text,
-          timestamp: populatedMessage.createdAt
-        });
-      }
-
-      // Acknowledge sender
-      socket.emit('messageSent', { success: true, messageId: newMessage._id });
-
-    } catch (err) {
-      console.error("❌ Error saving message:", err.message);
-      socket.emit('messageSent', { success: false });
     }
-  });
+
+    // 5️⃣ Acknowledge sender
+    socket.emit("messageSent", { success: true, messageId: newMessage._id });
+
+  } catch (err) {
+    console.error("❌ Error saving message:", err.message);
+    socket.emit("messageSent", { success: false });
+  }
+});
 
   // ✅ Handle disconnect
   socket.on('disconnect', () => {

@@ -1,15 +1,28 @@
+// 📁 routes/messageRoutes.js
 const express = require("express");
 const router = express.Router();
-const { startChat, sendMessage, getMessages } = require("../controllers/messageController");
 const auth = require("../middleware/authMiddleware");
+const Message = require("../models/Message");
 
-// Start chat with item owner
-router.post("/chat/start/:itemId", auth, startChat);
+// ✅ Get all messages for a specific item
+router.get("/:itemId/:type", auth, async (req, res) => {
+  try {
+    const { itemId, type } = req.params;
+    const userId = req.userId;
 
-// Send a message in a chat
-router.post("/chat/:chatId/message", auth, sendMessage);
+    const messages = await Message.find({
+      itemId,
+      itemType: type === "lost" ? "LostItem" : "FoundItem",
+      $or: [{ sender: userId }, { receiver: userId }]
+    })
+      .populate("sender", "name")
+      .populate("receiver", "name")
+      .sort({ createdAt: 1 });
 
-// Get all messages in a chat
-router.get("/chat/:chatId/messages", auth, getMessages);
+    res.json(messages);
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
 
 module.exports = router;
